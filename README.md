@@ -1,5 +1,7 @@
 # Have I Been Pwned MCP Server
 
+[![smithery badge](https://smithery.ai/badge/@Cyreslab-AI/hibp-mcp-server)](https://smithery.ai/server/@Cyreslab-AI/hibp-mcp-server)
+
 A Model Context Protocol (MCP) server that provides integration with the [Have I Been Pwned](https://haveibeenpwned.com/) API to check if your accounts or passwords have been compromised in data breaches.
 
 ## Features
@@ -12,6 +14,14 @@ This MCP server provides four main tools:
 4. **list_all_breaches**: List all breaches in the system, optionally filtered by domain
 
 ## Installation
+
+### Installing via Smithery
+
+To install hibp-mcp-server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@Cyreslab-AI/hibp-mcp-server):
+
+```bash
+npx -y @smithery/cli install @Cyreslab-AI/hibp-mcp-server --client claude
+```
 
 ### Prerequisites
 

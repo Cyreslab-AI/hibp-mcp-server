@@ -1,0 +1,23 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP.
+    type: object
+    required:
+      - hibpApiKey
+    properties:
+      hibpApiKey:
+        type: string
+        description: Your Have I Been Pwned API key.
+  commandFunction:
+    # A JS function that produces the CLI command based on the given config to start the MCP on stdio.
+    |-
+    (config) => ({
+      command: 'node',
+      args: ['build/index.js'],
+      env: { HIBP_API_KEY: config.hibpApiKey }
+    })
+  exampleConfig:
+    hibpApiKey: YOUR_DEMO_HIBP_API_KEY

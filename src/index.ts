@@ -21,6 +21,67 @@ import crypto from "crypto";
 // API key should be provided as an environment variable
 const API_KEY = process.env.HIBP_API_KEY;
 
+// JSON Schema for a single HIBP breach record, as returned by the HIBP API and
+// consumed by handleCheckEmail(), handleGetBreachDetails() and
+// handleListAllBreaches() (fields beyond these are passed through untouched).
+const BREACH_SCHEMA = {
+  type: "object",
+  properties: {
+    Name: { type: "string" },
+    Title: { type: "string" },
+    Domain: { type: "string" },
+    BreachDate: { type: "string" },
+    Description: { type: "string" },
+    DataClasses: {
+      type: "array",
+      items: { type: "string" },
+      description: "Types of data compromised in the breach",
+    },
+    PwnCount: { type: "number" },
+    IsVerified: { type: "boolean" },
+    IsFabricated: { type: "boolean" },
+    IsSensitive: { type: "boolean" },
+    IsRetired: { type: "boolean" },
+    IsSpamList: { type: "boolean" },
+  },
+  required: ["Name", "BreachDate", "Domain", "Description", "DataClasses"],
+  additionalProperties: true,
+};
+
+// JSON Schema for check_email's structured result.
+const CHECK_EMAIL_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    found: { type: "boolean" },
+    breach_count: { type: "number" },
+    breaches: { type: "array", items: BREACH_SCHEMA },
+  },
+  required: ["found", "breach_count", "breaches"],
+};
+
+// JSON Schema for check_password's structured result.
+const CHECK_PASSWORD_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    pwned: { type: "boolean" },
+    occurrences: {
+      type: "number",
+      description: "Number of times this password hash was seen in breach corpora",
+    },
+  },
+  required: ["pwned", "occurrences"],
+};
+
+// JSON Schema for list_all_breaches's structured result.
+const LIST_ALL_BREACHES_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    count: { type: "number" },
+    breaches: { type: "array", items: BREACH_SCHEMA },
+  },
+  required: ["count", "breaches"],
+};
+
 /**
  * Have I Been Pwned MCP Server implementation
  */
@@ -100,6 +161,8 @@ class HibpServer {
             },
             required: ["email"],
           },
+          annotations: { readOnlyHint: true, openWorldHint: true },
+          outputSchema: CHECK_EMAIL_OUTPUT_SCHEMA,
         },
         {
           name: "check_password",
@@ -115,6 +178,8 @@ class HibpServer {
             },
             required: ["password"],
           },
+          annotations: { readOnlyHint: true, openWorldHint: true },
+          outputSchema: CHECK_PASSWORD_OUTPUT_SCHEMA,
         },
         {
           name: "get_breach_details",
@@ -129,6 +194,8 @@ class HibpServer {
             },
             required: ["breach_name"],
           },
+          annotations: { readOnlyHint: true, openWorldHint: true },
+          outputSchema: BREACH_SCHEMA,
         },
         {
           name: "list_all_breaches",
@@ -142,6 +209,8 @@ class HibpServer {
               },
             },
           },
+          annotations: { readOnlyHint: true, openWorldHint: true },
+          outputSchema: LIST_ALL_BREACHES_OUTPUT_SCHEMA,
         },
       ],
     }));
@@ -291,6 +360,11 @@ class HibpServer {
           text: summary,
         },
       ],
+      structuredContent: {
+        found: true,
+        breach_count: breachCount,
+        breaches,
+      },
     };
   }
 
@@ -345,6 +419,10 @@ class HibpServer {
             text: `⚠️ This password has been exposed in data breaches ${occurrences.toLocaleString()} times!\n\nRecommendations:\n- Stop using this password immediately\n- Change it on any site where you use it\n- Use a unique, strong password for each account\n- Consider using a password manager`,
           },
         ],
+        structuredContent: {
+          pwned: true,
+          occurrences,
+        },
       };
     } else {
       return {
@@ -428,6 +506,7 @@ class HibpServer {
           text: details,
         },
       ],
+      structuredContent: breach,
     };
   }
 
@@ -490,6 +569,10 @@ class HibpServer {
           text: summary,
         },
       ],
+      structuredContent: {
+        count: breaches.length,
+        breaches,
+      },
     };
   }
 

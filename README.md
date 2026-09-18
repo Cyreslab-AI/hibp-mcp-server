@@ -6,12 +6,25 @@ A Model Context Protocol (MCP) server that provides integration with the [Have I
 
 ## Features
 
-This MCP server provides four main tools:
+This MCP server provides the following tools:
 
-1. **check_email**: Check if an email address has been found in data breaches
-2. **check_password**: Check if a password has been exposed in data breaches (using k-anonymity)
-3. **get_breach_details**: Get detailed information about a specific data breach
-4. **list_all_breaches**: List all breaches in the system, optionally filtered by domain
+### Free (no API key required)
+
+1. **check_password**: Check if a password has been exposed in data breaches (using k-anonymity)
+2. **get_breach_details**: Get detailed information about a specific data breach
+3. **list_all_breaches**: List all breaches in the system, optionally filtered by domain
+4. **get_data_classes**: List all the types of data (data classes) that can appear in a breach
+5. **get_latest_breach**: Get the most recently added breach in the system
+
+### Requires a paid HIBP API key
+
+6. **check_email**: Check if an email address has been found in data breaches
+7. **get_pastes_for_account**: Check if an email address has appeared in a paste (e.g. Pastebin)
+8. **check_stealer_logs_by_email**: Check which website domains had credentials for an email address captured by info-stealer malware (Pro-tier or higher)
+9. **check_stealer_logs_by_website_domain**: Check which email aliases had credentials for a website domain captured by info-stealer malware (Pro-tier or higher)
+10. **check_stealer_logs_by_email_domain**: Check which email aliases at a verified email domain had credentials captured by info-stealer malware, and for which websites (Pro-tier or higher)
+
+Stealer logs are a different, higher-fidelity threat category than classic breach lists: they show credentials that info-stealer malware captured directly off a victim's device (for example, from a browser's saved passwords), rather than credentials leaked when a company's database was hacked.
 
 ## Installation
 
@@ -165,6 +178,79 @@ Claude: Found 1 breaches for domain adobe.com:
    Compromised data: Email addresses, Password hints, Passwords, Usernames
 ```
 
+### Get Data Classes
+
+```
+User: What types of data does HIBP track?
+
+Claude: Have I Been Pwned tracks 165 types of compromised data:
+
+- Academic records
+- Account balances
+- ...
+```
+
+### Get Latest Breach
+
+```
+User: What's the most recent breach added to HIBP?
+
+Claude: # Latest Breach: Chess2026
+
+**Date:** 2026-08-03
+**Domain:** chess.com
+**Accounts affected:** 4,653,212
+**Data leaked:** Email addresses, Geographic locations, Names, Usernames
+```
+
+### Get Pastes for Account (requires API key)
+
+```
+User: Has my email been found in any pastes?
+
+Claude: ⚠️ This email address was found in 1 paste.
+
+1. Source: Pastebin
+   Date: 2014-03-04T19:14:54Z
+   Email addresses in paste: 139
+```
+
+### Check Stealer Logs by Email (requires Pro-tier API key or higher)
+
+```
+User: Has my email shown up in any stealer logs?
+
+Claude: ⚠️ This email address's credentials were found in stealer logs for 2 websites.
+
+Websites: netflix.com, spotify.com
+
+Recommendations:
+- Change your password on these websites immediately
+- Run an up-to-date malware scan on any device you use to log in
+- Enable two-factor authentication where available
+```
+
+### Check Stealer Logs by Website Domain (requires Pro-tier API key or higher)
+
+```
+User: Which of our users had credentials for netflix.com captured by stealer malware?
+
+Claude: ⚠️ Found 2 email aliases with credentials for netflix.com captured in stealer logs.
+
+Email aliases: andy@gmail.com, jane@gmail.com
+```
+
+### Check Stealer Logs by Email Domain (requires Pro-tier API key or higher, verified domain)
+
+```
+User: Have any of our employees at example.com shown up in stealer logs?
+
+Claude: ⚠️ Found 2 email aliases at example.com with credentials captured in stealer logs.
+
+1. andy@example.com: netflix.com
+2. jane@example.com: netflix.com, spotify.com
+```
+
 ## Security Notes
 
 - The password checking feature uses k-anonymity to check passwords without sending the full password to the Have I Been Pwned API
@@ -173,9 +259,15 @@ Claude: Found 1 breaches for domain adobe.com:
 
 ## API Key Configuration
 
-This server requires a Have I Been Pwned API key to function for most features (except password checking). You can get an API key at [haveibeenpwned.com/API/Key](https://haveibeenpwned.com/API/Key).
+Per the [HIBP API](https://haveibeenpwned.com/API/v3), some endpoints are free and public, while others require a paid API key:
 
-The API key should be provided as an environment variable named `HIBP_API_KEY` in your MCP settings configuration.
+- **Free, no key needed:** `check_password`, `get_breach_details`, `list_all_breaches`, `get_data_classes`, `get_latest_breach`
+- **Requires a paid API key:** `check_email`, `get_pastes_for_account` (Core, Pro, or High RPM tier)
+- **Requires a paid API key with Pro-tier access or higher:** `check_stealer_logs_by_email`, `check_stealer_logs_by_website_domain`, `check_stealer_logs_by_email_domain` (the email/domain-scoped stealer logs endpoints also need the domain to be verified with HIBP)
+
+You can get an API key at [haveibeenpwned.com/API/Key](https://haveibeenpwned.com/API/Key).
+
+The API key should be provided as an environment variable named `HIBP_API_KEY` in your MCP settings configuration. If it is not set, the free tools above still work; the tools that require a key return a clear error message instead of failing silently.
 
 ## License
 

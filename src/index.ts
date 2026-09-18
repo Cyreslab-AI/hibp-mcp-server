@@ -82,6 +82,128 @@ const LIST_ALL_BREACHES_OUTPUT_SCHEMA = {
   required: ["count", "breaches"],
 };
 
+// JSON Schema for get_data_classes's structured result.
+const DATA_CLASSES_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    count: { type: "number" },
+    data_classes: {
+      type: "array",
+      items: { type: "string" },
+      description: "Types of data that can be compromised in a breach",
+    },
+  },
+  required: ["count", "data_classes"],
+};
+
+// JSON Schema for get_latest_breach's structured result (a single breach).
+const GET_LATEST_BREACH_OUTPUT_SCHEMA = BREACH_SCHEMA;
+
+// JSON Schema for a single HIBP paste record, as returned by /pasteaccount/{email}.
+const PASTE_SCHEMA = {
+  type: "object",
+  properties: {
+    Source: { type: "string" },
+    Id: { type: "string" },
+    Title: { type: "string" },
+    Date: { type: "string" },
+    EmailCount: { type: "number" },
+  },
+  required: ["Source", "Id", "Date", "EmailCount"],
+  additionalProperties: true,
+};
+
+// JSON Schema for get_pastes_for_account's structured result.
+const GET_PASTES_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    found: { type: "boolean" },
+    paste_count: { type: "number" },
+    pastes: { type: "array", items: PASTE_SCHEMA },
+  },
+  required: ["found", "paste_count", "pastes"],
+};
+
+// JSON Schema for check_stealer_logs_by_email's structured result.
+const STEALER_LOGS_BY_EMAIL_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    email: { type: "string" },
+    found: { type: "boolean" },
+    domain_count: { type: "number" },
+    domains: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Website domains where this email's credentials were captured by info-stealer malware",
+    },
+  },
+  required: ["email", "found", "domain_count", "domains"],
+};
+
+// JSON Schema for check_stealer_logs_by_website_domain's structured result.
+const STEALER_LOGS_BY_WEBSITE_DOMAIN_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    domain: { type: "string" },
+    found: { type: "boolean" },
+    email_count: { type: "number" },
+    emails: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "Email aliases whose credentials for this website were captured by info-stealer malware",
+    },
+  },
+  required: ["domain", "found", "email_count", "emails"],
+};
+
+// JSON Schema for check_stealer_logs_by_email_domain's structured result.
+const STEALER_LOGS_BY_EMAIL_DOMAIN_OUTPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    domain: { type: "string" },
+    found: { type: "boolean" },
+    alias_count: { type: "number" },
+    aliases: {
+      type: "object",
+      description:
+        "Map of email alias (local part) to the website domains where that alias's credentials were captured",
+      additionalProperties: {
+        type: "array",
+        items: { type: "string" },
+      },
+    },
+  },
+  required: ["domain", "found", "alias_count", "aliases"],
+};
+
+// Tools that call HIBP endpoints requiring a paid HIBP_API_KEY: lookups
+// scoped to a specific account or domain (breach-by-account, pastes,
+// stealer logs). The breach catalogue (get_breach_details,
+// list_all_breaches, get_data_classes, get_latest_breach) and
+// check_password are free per the HIBP API and are intentionally excluded.
+const KEY_REQUIRED_TOOLS = new Set([
+  "check_email",
+  "get_pastes_for_account",
+  "check_stealer_logs_by_email",
+  "check_stealer_logs_by_website_domain",
+  "check_stealer_logs_by_email_domain",
+]);
+
+// Friendly "no results" messages for tools where HIBP responds with 404 to
+// mean "nothing found" rather than a real error.
+const NOT_FOUND_MESSAGES: Record<string, (args: any) => string> = {
+  get_pastes_for_account: () =>
+    "Good news! No pastes were found containing this email address.",
+  check_stealer_logs_by_email: () =>
+    "Good news! This email address was not found in any known stealer logs.",
+  check_stealer_logs_by_website_domain: (args: any) =>
+    `No stealer log entries were found for the website domain: ${args?.domain}`,
+  check_stealer_logs_by_email_domain: (args: any) =>
+    `No stealer log entries were found for the email domain: ${args?.domain}`,
+};
+
 /**
  * Have I Been Pwned MCP Server implementation
  */
@@ -212,6 +334,96 @@ class HibpServer {
           annotations: { readOnlyHint: true, openWorldHint: true },
           outputSchema: LIST_ALL_BREACHES_OUTPUT_SCHEMA,
         },
+        {
+          name: "get_data_classes",
+          description:
+            "List all the types of data (data classes) that can appear in a breach, e.g. 'Email addresses', 'Passwords'",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+          annotations: { readOnlyHint: true, openWorldHint: true },
+          outputSchema: DATA_CLASSES_OUTPUT_SCHEMA,
+        },
+        {
+          name: "get_latest_breach",
+          description:
+            "Get the most recently added breach in the Have I Been Pwned system",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+          annotations: { readOnlyHint: true, openWorldHint: true },
+          outputSchema: GET_LATEST_BREACH_OUTPUT_SCHEMA,
+        },
+        {
+          name: "get_pastes_for_account",
+          description:
+            "Get a list of pastes (e.g. Pastebin) that an email address has been found in. Requires a paid HIBP API key.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              email: {
+                type: "string",
+                description: "Email address to check",
+              },
+            },
+            required: ["email"],
+          },
+          annotations: { readOnlyHint: true, openWorldHint: true },
+          outputSchema: GET_PASTES_OUTPUT_SCHEMA,
+        },
+        {
+          name: "check_stealer_logs_by_email",
+          description:
+            "Check which website domains had credentials for this email address captured by info-stealer malware. This is a different, higher-fidelity threat category than classic breach lists. Requires a paid HIBP API key with Pro-tier access or higher.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              email: {
+                type: "string",
+                description: "Email address to check",
+              },
+            },
+            required: ["email"],
+          },
+          annotations: { readOnlyHint: true, openWorldHint: true },
+          outputSchema: STEALER_LOGS_BY_EMAIL_OUTPUT_SCHEMA,
+        },
+        {
+          name: "check_stealer_logs_by_website_domain",
+          description:
+            "Check which email aliases had credentials for this website domain captured by info-stealer malware. Requires a paid HIBP API key with Pro-tier access or higher.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              domain: {
+                type: "string",
+                description: "Website domain to check, e.g. 'netflix.com'",
+              },
+            },
+            required: ["domain"],
+          },
+          annotations: { readOnlyHint: true, openWorldHint: true },
+          outputSchema: STEALER_LOGS_BY_WEBSITE_DOMAIN_OUTPUT_SCHEMA,
+        },
+        {
+          name: "check_stealer_logs_by_email_domain",
+          description:
+            "Check which email aliases at this email domain (e.g. a company's domain) had credentials captured by info-stealer malware, and which websites those credentials were for. Requires a paid HIBP API key with Pro-tier access or higher, and the domain must be verified with HIBP.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              domain: {
+                type: "string",
+                description: "Email domain to check, e.g. 'example.com'",
+              },
+            },
+            required: ["domain"],
+          },
+          annotations: { readOnlyHint: true, openWorldHint: true },
+          outputSchema: STEALER_LOGS_BY_EMAIL_DOMAIN_OUTPUT_SCHEMA,
+        },
       ],
     }));
 
@@ -219,8 +431,13 @@ class HibpServer {
     this.server.setRequestHandler(
       "tools/call",
       async (request): Promise<any> => {
-        // Check if API key is available for endpoints that require it
-        if (!API_KEY && request.params.name !== "check_password") {
+        // Check if API key is available for endpoints that require it.
+        // Per the HIBP API, the breach catalogue (get_breach_details,
+        // list_all_breaches, get_data_classes, get_latest_breach) and
+        // check_password are free and do not require a key. Only lookups
+        // tied to a specific account/domain (breach-by-account, pastes,
+        // stealer logs) require a paid HIBP_API_KEY.
+        if (!API_KEY && KEY_REQUIRED_TOOLS.has(request.params.name)) {
           return {
             content: [
               {
@@ -244,6 +461,26 @@ class HibpServer {
               );
             case "list_all_breaches":
               return await this.handleListAllBreaches(request.params.arguments);
+            case "get_data_classes":
+              return await this.handleGetDataClasses();
+            case "get_latest_breach":
+              return await this.handleGetLatestBreach();
+            case "get_pastes_for_account":
+              return await this.handleGetPastesForAccount(
+                request.params.arguments,
+              );
+            case "check_stealer_logs_by_email":
+              return await this.handleCheckStealerLogsByEmail(
+                request.params.arguments,
+              );
+            case "check_stealer_logs_by_website_domain":
+              return await this.handleCheckStealerLogsByWebsiteDomain(
+                request.params.arguments,
+              );
+            case "check_stealer_logs_by_email_domain":
+              return await this.handleCheckStealerLogsByEmailDomain(
+                request.params.arguments,
+              );
             default:
               throw new ProtocolError(
                 ProtocolErrorCode.MethodNotFound,
@@ -262,6 +499,23 @@ class HibpServer {
                   {
                     type: "text",
                     text: "Good news! This email address has not been found in any known data breaches.",
+                  },
+                ],
+              };
+            }
+
+            // HIBP returns 404 for the account/domain-scoped lookups below
+            // when there are simply no results, not as an error condition.
+            const notFoundMessageFn =
+              NOT_FOUND_MESSAGES[
+                request.params.name as keyof typeof NOT_FOUND_MESSAGES
+              ];
+            if (error.response?.status === 404 && notFoundMessageFn) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: notFoundMessageFn(request.params.arguments),
                   },
                 ],
               };
@@ -572,6 +826,282 @@ class HibpServer {
       structuredContent: {
         count: breaches.length,
         breaches,
+      },
+    };
+  }
+
+  /**
+   * Handle the get_data_classes tool
+   */
+  private async handleGetDataClasses() {
+    const response = await this.axiosInstance.get("/dataclasses");
+
+    const dataClasses: string[] = response.data || [];
+
+    let summary = `Have I Been Pwned tracks ${dataClasses.length} types of compromised data:\n\n`;
+    summary += dataClasses.map((dc) => `- ${dc}`).join("\n");
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: summary,
+        },
+      ],
+      structuredContent: {
+        count: dataClasses.length,
+        data_classes: dataClasses,
+      },
+    };
+  }
+
+  /**
+   * Handle the get_latest_breach tool
+   */
+  private async handleGetLatestBreach() {
+    const response = await this.axiosInstance.get("/latestbreach");
+
+    const breach = response.data;
+
+    if (!breach) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "No breach information is currently available.",
+          },
+        ],
+      };
+    }
+
+    let details = `# Latest Breach: ${breach.Name}\n\n`;
+    details += `**Date:** ${breach.BreachDate}\n`;
+    details += `**Domain:** ${breach.Domain}\n`;
+    if (typeof breach.PwnCount === "number") {
+      details += `**Accounts affected:** ${breach.PwnCount.toLocaleString()}\n`;
+    }
+    if (Array.isArray(breach.DataClasses)) {
+      details += `**Data leaked:** ${breach.DataClasses.join(", ")}\n`;
+    }
+    details += `\n**Description:**\n${breach.Description}`;
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: details,
+        },
+      ],
+      structuredContent: breach,
+    };
+  }
+
+  /**
+   * Handle the get_pastes_for_account tool
+   * Requires a paid HIBP API key (Core, Pro, or High RPM tier).
+   */
+  private async handleGetPastesForAccount(args: any) {
+    if (!args.email || typeof args.email !== "string") {
+      throw new ProtocolError(
+        ProtocolErrorCode.InvalidParams,
+        "Email address is required",
+      );
+    }
+
+    const response = await this.axiosInstance.get(
+      `/pasteaccount/${encodeURIComponent(args.email)}`,
+    );
+
+    if (!response.data || response.data.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Good news! No pastes were found containing this email address.",
+          },
+        ],
+      };
+    }
+
+    const pastes = response.data;
+    const pasteCount = pastes.length;
+
+    let summary = `⚠️ This email address was found in ${pasteCount} paste${pasteCount > 1 ? "s" : ""}.\n\n`;
+
+    pastes.forEach((paste: any, index: number) => {
+      summary += `${index + 1}. Source: ${paste.Source}${paste.Title ? ` (${paste.Title})` : ""}\n`;
+      summary += `   Date: ${paste.Date || "unknown"}\n`;
+      summary += `   Email addresses in paste: ${paste.EmailCount}\n`;
+
+      if (index < pastes.length - 1) {
+        summary += "\n";
+      }
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: summary,
+        },
+      ],
+      structuredContent: {
+        found: true,
+        paste_count: pasteCount,
+        pastes,
+      },
+    };
+  }
+
+  /**
+   * Handle the check_stealer_logs_by_email tool
+   * Requires a paid HIBP API key with Pro-tier access or higher.
+   */
+  private async handleCheckStealerLogsByEmail(args: any) {
+    if (!args.email || typeof args.email !== "string") {
+      throw new ProtocolError(
+        ProtocolErrorCode.InvalidParams,
+        "Email address is required",
+      );
+    }
+
+    const response = await this.axiosInstance.get(
+      `/stealerlogsbyemail/${encodeURIComponent(args.email)}`,
+    );
+
+    const domains: string[] = response.data || [];
+
+    if (domains.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Good news! This email address was not found in any known stealer logs.",
+          },
+        ],
+      };
+    }
+
+    let summary = `⚠️ This email address's credentials were found in stealer logs for ${domains.length} website${domains.length > 1 ? "s" : ""}.\n\n`;
+    summary += "Websites: " + domains.join(", ");
+    summary += "\n\nRecommendations:\n";
+    summary += "- Change your password on these websites immediately\n";
+    summary += "- Run an up-to-date malware scan on any device you use to log in\n";
+    summary += "- Enable two-factor authentication where available";
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: summary,
+        },
+      ],
+      structuredContent: {
+        email: args.email,
+        found: true,
+        domain_count: domains.length,
+        domains,
+      },
+    };
+  }
+
+  /**
+   * Handle the check_stealer_logs_by_website_domain tool
+   * Requires a paid HIBP API key with Pro-tier access or higher.
+   */
+  private async handleCheckStealerLogsByWebsiteDomain(args: any) {
+    if (!args.domain || typeof args.domain !== "string") {
+      throw new ProtocolError(
+        ProtocolErrorCode.InvalidParams,
+        "Website domain is required",
+      );
+    }
+
+    const response = await this.axiosInstance.get(
+      `/stealerlogsbywebsitedomain/${encodeURIComponent(args.domain)}`,
+    );
+
+    const emails: string[] = response.data || [];
+
+    if (emails.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `No stealer log entries were found for the website domain: ${args.domain}`,
+          },
+        ],
+      };
+    }
+
+    let summary = `⚠️ Found ${emails.length} email alias${emails.length > 1 ? "es" : ""} with credentials for ${args.domain} captured in stealer logs.\n\n`;
+    summary += "Email aliases: " + emails.join(", ");
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: summary,
+        },
+      ],
+      structuredContent: {
+        domain: args.domain,
+        found: true,
+        email_count: emails.length,
+        emails,
+      },
+    };
+  }
+
+  /**
+   * Handle the check_stealer_logs_by_email_domain tool
+   * Requires a paid HIBP API key with Pro-tier access or higher, and the
+   * domain must be verified with HIBP.
+   */
+  private async handleCheckStealerLogsByEmailDomain(args: any) {
+    if (!args.domain || typeof args.domain !== "string") {
+      throw new ProtocolError(
+        ProtocolErrorCode.InvalidParams,
+        "Email domain is required",
+      );
+    }
+
+    const response = await this.axiosInstance.get(
+      `/stealerlogsbyemaildomain/${encodeURIComponent(args.domain)}`,
+    );
+
+    const aliases: Record<string, string[]> = response.data || {};
+    const aliasNames = Object.keys(aliases);
+
+    if (aliasNames.length === 0) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `No stealer log entries were found for the email domain: ${args.domain}`,
+          },
+        ],
+      };
+    }
+
+    let summary = `⚠️ Found ${aliasNames.length} email alias${aliasNames.length > 1 ? "es" : ""} at ${args.domain} with credentials captured in stealer logs.\n\n`;
+
+    aliasNames.forEach((alias, index) => {
+      summary += `${index + 1}. ${alias}@${args.domain}: ${aliases[alias].join(", ")}\n`;
+    });
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: summary,
+        },
+      ],
+      structuredContent: {
+        domain: args.domain,
+        found: true,
+        alias_count: aliasNames.length,
+        aliases,
       },
     };
   }
